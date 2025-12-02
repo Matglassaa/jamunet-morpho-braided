@@ -1,4 +1,4 @@
-name: braided_test
+name: braided_update
 channels:
   - pytorch
   - nvidia
