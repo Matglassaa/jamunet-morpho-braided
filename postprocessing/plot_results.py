@@ -707,7 +707,7 @@ def plot_dataset_losses_metrics(model, dataset, loss_f='BCE', train_val_test='te
     '''
     
     losses, accuracies, precisions, recalls, f1_scores, csi_scores = total_losses_metrics_dataset(model, dataset, loss_f, nonwater, 
-                                                                                                  water, water_threshold, overall=False, device=device) 
+                                                                                                  water, water_threshold,  device=device)   #remoed from original code: overall=False, 
 
     avg_loss = np.mean(losses)
     samples = np.arange(1, len(losses) + 1, 1)
