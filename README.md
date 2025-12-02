@@ -30,6 +30,7 @@
 The structure of this repository is the following:
 - <code>benchmarks</code>, contains modules and notebooks of the benchmark models used for comparison;
 - <code>data</code>, contains raw data (satellite images, river variables);
+- <code>gee</code>, contains the scripts as <code>.js</code> files necessary for exporting the images from Google Earth Engine; (work in progress)
 - <code>images</code>, contains the images shown in the thesis report and other documents; (to be added soon)
 - <code>model</code>, contains the modules and noteboooks with the deep-learning model;
 - <code>other</code>, contains documents, images, and other files used during the project;

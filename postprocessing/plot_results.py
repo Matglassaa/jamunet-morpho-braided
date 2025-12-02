@@ -333,6 +333,141 @@ def show_evolution_nolegend(sample_img, dataset, model, nonwater=0, water=1, wat
         plt.show()
     return None
 
+def show_evolution_nolegend_nn(sample_img, dataset, model, nonwater=0, water=1, water_threshold=0.5, pixel_size=60, device='cuda:0', 
+                               train_val_test='testing', loss_recall='min loss', spatial_temporal='spatial', save_img=False):
+    '''
+    Plot input images, target image, predicted image, and misclassification map (prediciton minus target).
+    It also includes the bar plot with the real and predicted total areas of erosion and deposition.
+    This function is adapted for simple neural networks that do not have multiple channels in the output, similar to thas of Jagers (2003).
+
+    Inputs:
+           sample_img = int, specifies the input-target combination
+           dataset = TensorDataset, contains inputs and targets for the model
+           model = class, trained deep-learning model to be validated/tested
+           nonwater = int, represents pixel value of non-water class.
+                      default: 0, based on the updated pixel classes. 
+           water = int, represents pixel value of water class.
+                   default: 1, based on the updated pixel classes.
+           water_threshold = float, threshold for binary classification.
+                             default: 0.5, accepted range 0-1 (excluded)
+           pixel_size = int, image pixel resolution (m). Used for computing the erosion and deposition areas
+                        default: 60, exported image resolution from Google Earth Engine
+           device = str, specifies device where memory is allocated for performing the computations
+                    default: 'cuda:0' (GPU), other availble option: 'cpu'
+           train_val_test = str, specifies what the images are used for.
+                            available options: 'training', 'validation' and 'testing'
+           loss_recall = str, specifies the model type, whether the one with minimum validatoin loss or the one with maximum validation recall.
+                         Available options: 'min loss', 'max recall'
+           spatial_temporal = str, specifies if model is trained with spatial or temporal dataset
+                              default: 'spatial'. Other available option: 'temporal'
+           save_img = bool, sets whether the function is used for saving the image or not
+                      default: False, image is not being saved
+
+    Output:
+           None, it plots the inputs, target, and predicted images as well as the misclassification map 
+                 and barplot of the areas of erosion and deposition 
+    '''
+    input_img = dataset[sample_img][0].unsqueeze(0)
+    target_img = dataset[sample_img][1].cpu()
+
+    prediction = model(input_img).detach().cpu() 
+    prediction = (prediction >= water_threshold).float()
+
+    diff = prediction - target_img
+    
+    shp = target_img.shape
+    x_ticks = np.arange(0, shp[1], 300)
+    y_ticks = np.arange(0, shp[0], 300)
+
+    # convert x_ticks and y_ticks from pixels to meters
+    x_tick_labels = [round(tick * 60/1000, 2) for tick in x_ticks]  
+    y_tick_labels = [round(tick * 60/1000, 2) for tick in y_ticks]
+
+    fig, ax = plt.subplots(2, 4, figsize=(10,10))
+    
+    # custom colormaps
+    grey_cmap = ListedColormap(['palegoldenrod', 'navy'])
+    diff_cmap = ListedColormap(['red', 'white', 'green'])
+    grey_diff_cmap = ListedColormap(['black', 'white'])
+    
+    # get target year
+    year, year2 = [1988 + i for i in range(2)], [2000 + i  for i in range(17)] # update if 2021 prediction is made
+    year = year + year2
+    
+    for i in range(ax.shape[1]):
+        ax[0,i].imshow(input_img[0][i].cpu(), cmap=grey_cmap, vmin=0)
+        if spatial_temporal == 'spatial':
+            ax[0,i].set_title(f'Input year {year[sample_img]+i*1}', fontsize=13)
+        else:
+            ax[0,i].set_title(f'Input year {2016+i*1}', fontsize=13)
+
+    im1 = ax[1,0].imshow(target_img, cmap=grey_cmap, vmin=0)
+    ax[1,1].imshow(prediction[0], cmap=grey_cmap)
+    im2 = ax[1,2].imshow(diff[0], cmap=diff_cmap, vmin=-1, vmax=1)
+    ax[1,2].imshow(target_img, cmap=grey_diff_cmap, vmin=0, alpha=0.2)
+
+    # compute locations of erosion and deposition
+    prediction_binary = (prediction >= water_threshold).float()
+    real_erosion_deposition = get_erosion_deposition(input_img[0][-1].cpu(), target_img, nonwater, water, pixel_size)
+    pred_erosion_deposition = get_erosion_deposition(input_img[0][-1].cpu(), prediction_binary, nonwater, water, pixel_size)
+    
+    categories = ['Erosion', 'Deposition']
+    
+    # adjust bar width and positions
+    bar_width = 0.3
+    bar_positions = np.arange(len(categories))
+
+    ax[1,3].bar(bar_positions - bar_width/2, real_erosion_deposition, bar_width, label='Real areas', color='white', edgecolor='k', hatch='///')
+    ax[1,3].bar(bar_positions + bar_width/2, pred_erosion_deposition, bar_width, label='Predicted areas', color='white', edgecolor='k', hatch='xxx')
+    
+    ax[1,3].set_ylabel('Area (km²)', fontsize=13)
+    ax[1,3].set_xticks(bar_positions, fontsize=12)
+    ax[1,3].set_xticklabels(categories, fontsize=12)
+    ax[1,3].yaxis.tick_right()  # move ticks to the right
+    ax[1,3].yaxis.set_label_position('right')  # move label to the right
+    ax[1,3].tick_params(left=False)
+
+    if spatial_temporal == 'spatial':
+        ax[1,0].set_title(f'Target year {year[sample_img]+4}\n', fontsize=13)
+    else:
+        ax[1,0].set_title(f'Target year 2020\n', fontsize=13)
+
+    ax[1,1].set_title(f'Predicted image\n', fontsize=13)
+    ax[1,2].set_title(f'Misclassification map\n(prediction - target)', fontsize=13)
+    ax[1,3].set_title(f'Erosion and\n deposition areas', fontsize=13)
+
+    for i in range(ax.shape[0]):
+        for j in range(ax.shape[1]):
+            if j == 3 and i == 1:
+                continue  # skip ticks and labels for the last subplot (erosion and deposition areas) 
+
+            ax[i,j].set_xticks(x_ticks, fontsize=12)
+            ax[i,j].set_yticks(y_ticks, fontsize=12)
+
+            if i == 1 and j < (ax.shape[1]-1):
+                ax[i,j].set_xlabel('Width (km)', fontsize=14)
+                ax[i,j].set_xticklabels(x_tick_labels, fontsize=12)
+            elif i != 1 and j <= ax.shape[1]:  # don't add x-ticks in the bottom right plot as it shows erosion/deposition areas and i != ax.shape[0]
+                ax[i,j].set_xticklabels([])
+
+            if j == 0:
+                ax[i,j].set_yticklabels(y_tick_labels, fontsize=12)
+                ax[i,j].set_ylabel('Length (km)', fontsize=14) 
+            else:
+                ax[i,j].set_yticklabels([]) 
+
+    # adjust spacing
+    fig.subplots_adjust(wspace=0.1, hspace=0.2) #top=0.85, , bottom=0.15
+
+    if save_img:
+        plt.savefig(rf'images\report\4_results\{loss_recall}_{spatial_temporal}\{train_val_test}{sample_img}_{loss_recall}_{spatial_temporal}.png', 
+                    bbox_inches='tight', dpi=1000)
+        plt.show()
+        plt.close(fig)  # close the figure to free memory
+    else:
+        plt.show()
+    return None
+
 def erosion_sites(model, dataset, sample, nonwater=0, water=1, water_threshold=0.5, train_val_test='testing', 
                   model_type='min loss', spatial_temporal='spatial', device='cuda:0', save_img=False):
     '''
