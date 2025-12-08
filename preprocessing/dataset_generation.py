@@ -265,11 +265,11 @@ def create_full_dataset(train_val_test, year_target=5, nonwater_threshold=480000
        
     # create tensors
     if dtype == None:
-        input_tensor = torch.tensor(stacked_dict['input'], device=device)
-        target_tensor = torch.tensor(stacked_dict['target'], device=device)
+        input_tensor = torch.tensor(stacked_dict['input'])
+        target_tensor = torch.tensor(stacked_dict['target'])
     else:
-        input_tensor = torch.tensor(stacked_dict['input'], dtype=dtype, device=device)
-        target_tensor = torch.tensor(stacked_dict['target'], dtype=dtype, device=device)
+        input_tensor = torch.tensor(stacked_dict['input'], dtype=dtype)
+        target_tensor = torch.tensor(stacked_dict['target'], dtype=dtype)
     
     dataset = TensorDataset(input_tensor, target_tensor)
     return dataset
