@@ -11,23 +11,39 @@ class DoubleConv(nn.Module):
         super().__init__()
         if not mid_channels:
             mid_channels = out_channels
-        self.double_conv = nn.Sequential(
+        # self.double_conv = nn.Sequential(
+        #     nn.Conv2d(in_channels, mid_channels, kernel_size=kernel_size, padding=kernel_size//2, bias=False),
+        #     nn.BatchNorm2d(mid_channels),
+        #     nn.ReLU(inplace=True)
+        # )
+                # Build the 2D convolution sequence
+        layers = [
             nn.Conv2d(in_channels, mid_channels, kernel_size=kernel_size, padding=kernel_size//2, bias=False),
             nn.BatchNorm2d(mid_channels),
             nn.ReLU(inplace=True)
-        )
+        ]
+        
+        if drop_channels and p_drop is not None:
+            layers.append(nn.Dropout2d(p=p_drop))
+        
+        self.double_conv = nn.Sequential(*layers)
         
         # 3D convolution layer added here with a smaller temporal kernel size
         self.conv3d = nn.Conv3d(mid_channels, out_channels, kernel_size=(1, kernel_size, kernel_size), padding=(0, kernel_size//2, kernel_size//2), bias=False)
-        
-        if drop_channels:
-            self.double_conv.add_module('dropout', nn.Dropout2d(p=p_drop))
+
+        self.bn3d = nn.BatchNorm3d(out_channels)        #Addedde: batch norm for 3D conv
+        self.relu = nn.ReLU(inplace=True)               #Added: ReLU for 3D conv   
+
+        # if drop_channels:
+        #     self.double_conv.add_module('dropout', nn.Dropout2d(p=p_drop))
 
     def forward(self, x):
         x = self.double_conv(x)  # 2D convolution
         # reshape input for 3D convolution (batch_size, mid_channels, depth = 1, height, width)
         x = x.unsqueeze(2)
         x = self.conv3d(x)  # 3D convolution
+        x = self.bn3d(x)    # Added2: batch norm for 3D conv
+        x = self.relu(x)    # Added: ReLU for 3D conv
         x = x.squeeze(2)  # reshape to original dimension by removing the depth
         return x
 
@@ -120,7 +136,7 @@ class UNet3D(nn.Module):
         # final 2D Convolution for output
         self.up4 = Up(hid_dims[1], hid_dims[0], kernel_size, bilinear, drop_channels, p_drop)
         self.outc = OutConv(hid_dims[0], n_classes)
-        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()     # Changed from ReLU to Sigmoid for output activation    
 
     def forward(self, x):
         x1 = self.inc(x)
@@ -139,5 +155,5 @@ class UNet3D(nn.Module):
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         x = self.outc(x)
-        x = self.relu(x)
+        x = self.sigmoid(x)         #changed self.relu() to self.sigmoid 
         return x
