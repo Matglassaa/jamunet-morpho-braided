@@ -86,8 +86,7 @@ var list_reaches = ee.List.sequence(ee.Number(1), training.size());
 // export single reach
 exportImagesToDrive(collection, 'JRC_GSW1_4_MonthlyHistory', 24, training, Start_period, End_period);
 
-// // loop through reach_id to export all reaches at the same time
-// // not working, the process crashes!
+// // loop through reach_id to export all reaches at the same time - not working, the process crashes!
 // for (var i = 1; i <= training.size().getInfo(); i++) {
 //   exportImagesToDrive(collection, 'JRC_GSW1_4_MonthlyHistory', i, training, Start_period, End_period);
 // }
@@ -96,9 +95,14 @@ exportImagesToDrive(collection, 'JRC_GSW1_4_MonthlyHistory', 24, training, Start
 //   exportImagesToDrive(collection, 'JRC_GSW1_4_MonthlyHistory', i, training, Start_period, End_period);
 // }
 
-// to run batch task execution copy-paste in console the following lines
+// ----------------------------------------------------------------------- //
+
+// // to automatically export all images without manually clicking on each run, follow these instructions
+// run batch task execution in console 
 
 // 1 // wait until all RUN are listed
+
+// press F12 to open console and paste the following code and run it
 
 // function runTaskList(){
 // // var tasklist = document.getElementsByClassName('task local type-EXPORT_IMAGE awaiting-user-config');
@@ -113,6 +117,7 @@ exportImagesToDrive(collection, 'JRC_GSW1_4_MonthlyHistory', 24, training, Start
 
 // 2 // confirm all RUN
 
+// in console paste the following code and run it
 // function confirmAll() {
 // // var ok = document.getElementsByClassName('goog-buttonset-default goog-buttonset-action');
 // // for (var i = 0; i < ok.length; i++)
@@ -125,10 +130,3 @@ exportImagesToDrive(collection, 'JRC_GSW1_4_MonthlyHistory', 24, training, Start
 // }
 
 // confirmAll();
-
-// // Loop through datasets and create charts
-// for (var i = 0; i < datasets.length; i++) {
-//   var dataset = datasets[i];
-//   var collection = ee.ImageCollection(dataset);
-//   createAndExportCharts(collection, dataset);
-// }
