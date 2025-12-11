@@ -1,5 +1,9 @@
 # JamUNet: predicting the morphological changes of braided sand-bed rivers with deep learning
 
+
+<img src="Figure 1.png" width="1000" alt="Brahmaputra-Jamuna River">
+
+
 <table>
   <tr>
     <td>
