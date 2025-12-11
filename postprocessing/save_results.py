@@ -6,9 +6,9 @@ import copy
 
 import pandas as pd
 
-def save_losses_metrics(train_losses, val_losses, metrics, spatial_temporal, model, month_dataset, init_hid_dim, 
-                        kernel_size, pooling, learning_rate, step_size, gamma, batch_size, num_epochs, 
-                        water_threshold, physics=False, alpha_er=None, alpha_dep=None, dir_output=r'model\losses_metrics'):
+def save_losses_metrics(train_losses, val_losses, metrics, spatial_temporal, model, month_dataset, init_hid_dim=None, 
+                        kernel_size=None, pooling=None, learning_rate=None, step_size=None, gamma=None, batch_size=None, num_epochs=None, 
+                        water_threshold=None, physics=False, alpha_er=None, alpha_dep=None, dir_output=r'model\losses_metrics'):
     '''
     Save training and validation losses and metrics in a .csv file. Could be used for a later visualisation of the losses and metrics evolution. 
     It is assumed that the model performs 4 downsamples.
@@ -72,8 +72,9 @@ You must set both `alpha_er` and `alpha_dep`.')
     print(save_path)
     return None
 
-def save_model_path(model, spatial_temporal, loss_recall, month_dataset, init_hid_dim, kernel_size, pooling, learning_rate, step_size, gamma, batch_size, num_epochs,
-                    water_threshold, physics=False, alpha_er=None, alpha_dep=None, dir_output=r'model\models_trained'):
+def save_model_path(train_losses, val_losses, metrics, spatial_temporal, model, month_dataset=None, init_hid_dim=None, 
+                    kernel_size=None, pooling=None, learning_rate=None, step_size=None, gamma=None, batch_size=None, num_epochs=None, 
+                    water_threshold=None, physics=False, alpha_er=None, alpha_dep=None, dir_output=r'model\models_trained'):
     '''
     Save the model .pth file path from the training notebook. It is then loaded in a different notebook for testing the model.
     It is assumed that the model performs 4 downsamples.

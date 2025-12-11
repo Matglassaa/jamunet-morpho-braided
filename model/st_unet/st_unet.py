@@ -120,7 +120,7 @@ class UNet3D(nn.Module):
         # final 2D Convolution for output
         self.up4 = Up(hid_dims[1], hid_dims[0], kernel_size, bilinear, drop_channels, p_drop)
         self.outc = OutConv(hid_dims[0], n_classes)
-        self.relu = nn.ReLU()
+        # self.relu = nn.ReLU()
 
     def forward(self, x):
         x1 = self.inc(x)
@@ -139,5 +139,5 @@ class UNet3D(nn.Module):
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         x = self.outc(x)
-        x = self.relu(x)
+        # x = self.relu(x)
         return x

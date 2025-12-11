@@ -76,148 +76,404 @@ def create_dir_list(train_val_test, dir_folders=r'data\satellite\dataset', colle
     list_dir.sort(key=lambda x: int(x.split(f'_{train_val_test}_r')[-1]))
     return list_dir
 
-def create_list_images(train_val_test, reach, dir_folders=r'data\satellite\dataset', collection=r'JRC_GSW1_4_MonthlyHistory'):
-    '''
-    Rreturn the paths of the satellite images present within a folder given use and reach. 
-    It will be used later for loading and creating the dataset.
+# def create_list_images(train_val_test, reach, dir_folders=r'data\satellite\dataset', collection=r'JRC_GSW1_4_MonthlyHistory'):
+#     '''
+#     Rreturn the paths of the satellite images present within a folder given use and reach. 
+#     It will be used later for loading and creating the dataset.
 
-    Inputs:
-           train_val_test = str, specifies what the images are used for.
-                            available options: 'training', 'validation' and 'testing'
-           reach = int, representing reach number. Number increases going upstream
-                   For training, the available range is 1-28 (included). 
-                   For validation and testing there is only 1 reach
-           dir_folders = str, directory where folders are stored
-                         default: r'data\satellite\dataset'
-           collection = str, specifies the satellite images collection.
-                        default: r'JRC_GSW1_4_MonthlyHistory', the function is implemented to work only with this dataset
+#     Inputs:
+#            train_val_test = str, specifies what the images are used for.
+#                             available options: 'training', 'validation' and 'testing'
+#            reach = int, representing reach number. Number increases going upstream
+#                    For training, the available range is 1-28 (included). 
+#                    For validation and testing there is only 1 reach
+#            dir_folders = str, directory where folders are stored
+#                          default: r'data\satellite\dataset'
+#            collection = str, specifies the satellite images collection.
+#                         default: r'JRC_GSW1_4_MonthlyHistory', the function is implemented to work only with this dataset
     
-    Outputs:
-            list_dir_images = list, contains the path for each image of the dataset needed for loading it                     
-    '''
-    # create folder path
-    folder = os.path.join(str(dir_folders), collection + rf'_{train_val_test}_r{reach}')
+#     Outputs:
+#             list_dir_images = list, contains the path for each image of the dataset needed for loading it                     
+#     '''
+#     # create folder path
+#     folder = os.path.join(str(dir_folders), collection + rf'_{train_val_test}_r{reach}')
+#     list_dir_images = []
+#     # loop through images of that folder
+#     for image in os.listdir(folder):
+#         # get only .tif files
+#         if image.endswith('.tif'):
+#             path_image = os.path.join(folder, image)
+#             list_dir_images.append(path_image)
+#     return list_dir_images
+
+# def create_datasets(train_val_test, reach, year_target=5, nodata_value=-1, dir_folders=r'data\satellite\dataset', 
+#                     collection=r'JRC_GSW1_4_MonthlyHistory', scaled_classes=True):
+#     '''
+#     Create the input and target dataset for each specific use and reach. Return two lists of lists. 
+#     The input list has n-elements, with n depending on the year of prediction: 
+#     if fifth year is predicted the list has four elements. 
+#     The target list has one element (the year of prediction).
+
+#     n-to-1 predictions
+
+#     Generate binary images by replaciong `no-data` pixels with the average images stored in the .csv files available in 'data\satellite\averages'. 
+#     The average images are computed with the function 'get_good_avg' stored in the module 'satellite_analysis_pre'.  
+    
+#     Inputs: 
+#            train_val_test = str, specifies what the images are used for.
+#                             available options: 'training', 'validation' and 'testing'
+#            reach = int, representing reach number. Number increases going upstream.
+#                    For training, the available range is 1-28 (included)
+#                    For validation and testing there is only 1 reach
+#            year_target = int, sets the year predicted after a sequence of input years.
+#                          default: 5, input dataset is made of 4 images and 5th year is the predicted one
+#            nodata_value = int, represents pixel value of no-data class.
+#                           default: -1, based on the updated pixel classes. 
+#                           If `scaled_classes` = False, this should be set to 0
+#            dir_folders = str, directory where folders are stored
+#                          default: r'data\satellite\dataset'
+#            collection = str, specifies the satellite images collection.
+#                         default: r'JRC_GSW1_4_MonthlyHistory', the function is implemented to work only with this dataset
+#            scaled_classes = bool, sets whether pixel classes are scaled to the range [-1, 1] or kept within the original one [0, 2]
+#                             default: True, pixel classes are scaled (recommended). 
+    
+#     Outputs:
+#             input_dataset, target_dataset = lists of lists, contain the input and target images respectively  
+#     '''
+#     # create list of images (paths)
+#     list_dir_images = create_list_images(train_val_test, reach, dir_folders, collection)
+#     # load list of images (arrays)
+#     images_array = [load_image_array(list_dir_images[i], scaled_classes=scaled_classes) for i in range(len(list_dir_images))]
+#     # load season averages
+#     avg_imgs = [load_avg(train_val_test, reach, year, dir_averages=r'data\satellite\averages') for year in range(1988, 1988 + len(images_array))]
+#     # replace missing data - images are now binary!
+#     good_images_array = [np.where(image==nodata_value, avg_imgs[i], image) for i, image in enumerate(images_array)]
+        
+#     input_dataset = []
+#     target_dataset = []
+    
+#     # loop through images to append these in the originally empty lists
+#     for i in range(len(good_images_array)-year_target+1): # add +1 at the end to include last available year
+#         input_dataset.append(good_images_array[i:i+year_target-1])
+#         target_dataset.append([good_images_array[i+year_target-1]])
+
+#     return input_dataset, target_dataset
+
+# def create_datasets(train_val_test, reach, year_target=5, nodata_value=-1,
+#                     dir_folders=r'data\satellite\preprocessed_PIETER', 
+#                     collection=r'JRC_GSW1_4_MonthlyHistory', scaled_classes=True,
+#                     months=range(1, 13),        # NEW: months used as inputs (1..12)
+#                     target_month=3):             # NEW: target always March
+#     '''
+#     Create the input and target dataset for each specific use and reach.
+
+#     Now:
+#       - inputs = all months for (year_target - 1) years, in chronological order
+#       - target = next year (max year + 1), month = target_month (default: 3)
+#     '''
+#     # --- 1) create list of images (paths), assumed ordered by year then month ---
+#     list_dir_images = create_list_images(train_val_test, reach, dir_folders, collection)
+
+#     # --- 2) load images as arrays (flat list: year0_m1, year0_m2, ..., year1_m1, ...) ---
+#     images_array = [load_image_array(p, scaled_classes=scaled_classes)
+#                     for p in list_dir_images]
+
+#     # --- 3) yearly averages for nodata filling ---
+#     n_years = len(images_array) // 12
+
+
+#     good_images_array = images_array
+
+#     input_dataset = []
+#     target_dataset = []
+
+#     # --- 4) build sequences: (year_target - 1) years of inputs, then next year's March as target ---
+#     # we slide over years, not raw indices
+#     for start_year_idx in range(n_years - year_target + 1):
+#         input_images = []
+
+#         # input years: start_year_idx ... start_year_idx + year_target - 2
+#         for rel_y in range(year_target - 1):
+#             year_idx = start_year_idx + rel_y
+#             for m in months:  # months in chronological order, e.g. 1..12
+#                 img_idx = year_idx * 12 + (m - 1)  # flat index in good_images_array
+#                 input_images.append(good_images_array[img_idx])
+
+#         # target year: the next one
+#         target_year_idx = start_year_idx + year_target - 1
+#         target_idx = target_year_idx * 12 + (target_month - 1)  # March by default
+
+#         target_image = good_images_array[target_idx]
+
+#         input_dataset.append(input_images)      # length = (year_target - 1) * len(months)
+#         target_dataset.append([target_image])   # keep as [img] to match old structure
+
+#     return input_dataset, target_dataset
+
+
+# def create_datasets(train_val_test, reach, year_target=5, nodata_value=-1,
+#                     dir_folders=r'data\satellite\preprocessed_PIETER', 
+#                     collection=r'JRC_GSW1_4_MonthlyHistory', scaled_classes=True,
+#                     months=range(1, 13), target_month=3):
+#     """
+#     Return lists of file paths instead of loading arrays.
+#     """
+#     # --- 1) create list of images (paths), assumed ordered by year then month ---
+#     list_dir_images = create_list_images(train_val_test, reach, dir_folders, collection)
+
+#     n_years = len(list_dir_images) // 12
+
+#     input_dataset = []
+#     target_dataset = []
+
+#     # --- 2) build sequences using only paths ---
+#     for start_year_idx in range(n_years - year_target + 1):
+#         input_images = []
+
+#         for rel_y in range(year_target - 1):
+#             year_idx = start_year_idx + rel_y
+#             for m in months:
+#                 img_idx = year_idx * 12 + (m - 1)
+#                 input_images.append(list_dir_images[img_idx])
+
+#         target_year_idx = start_year_idx + year_target - 1
+#         target_idx = target_year_idx * 12 + (target_month - 1)
+#         target_image = list_dir_images[target_idx]
+
+#         input_dataset.append(input_images)
+#         target_dataset.append([target_image])
+
+#     return input_dataset, target_dataset
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# def combine_datasets(train_val_test, reach, year_target=5, nonwater_threshold=480000, nodata_value=-1, nonwater_value=0,   
+#                      dir_folders=r'data\satellite\dataset', collection=r'JRC_GSW1_4_MonthlyHistory', scaled_classes=True):
+#     '''
+#     Filter the images based on `non-water` amount of pixels threshold. If the requirement is not met, the full inputs-target combination is discarded.
+#     Select the best images for training the model. After the averaging step, `no-data` pixels are replaced with the season and neighboours average 
+#     (see 'get_good_avg' function in the module 'satellite_analysis_pre').
+#     If the full image is composed of `no-data`, the resulting average wil be a fully `non-water` image. These images are discarded.
+
+#     Inputs:
+#            train_val_test = str, specifies what the images are used for.
+#                             available options: 'training', 'validation' and 'testing'
+#            reach = int, representing reach number. Number increases going upstream.
+#                    For training, the available range is 1-28 (included)
+#                    For validation and testing there is only 1 reach
+#            year_target = int, sets the year predicted after a sequence of input years.
+#                          default: 5, input dataset is made of 4 images and 5th year is the predicted one
+#            nonwater_threshold = int, min amount of `non-water` pixels allowed in the inputs-target combinations
+#                                 default: 480000, necessary to filter out only the fully `non-water` images
+#            nodata_value = int, represents pixel value of no data class.
+#                           default: -1, based on the updated pixel classes. 
+#                           If `scaled_classes` = False, this should be set to 0
+#            nonwater_value = int, represents pixel value of non-water class.
+#                          default: 0, based on the updated pixel classes. 
+#                           If `scaled_classes` = False, this should be set to 1
+#            dir_folders = str, directory where folders are stored
+#                          default: r'data\satellite\dataset'
+#            collection = str, specifies the satellite images collection.
+#                         default: r'JRC_GSW1_4_MonthlyHistory', the function is implemented to work only with this dataset
+#            scaled_classes = bool, sets whether pixel classes are scaled to the range [-1, 1] or kept within the original one [0, 2]
+#                             default: True, pixel classes are scaled (recommended).
+                        
+#     Output:
+#            filtered_input_dataset, filtered_target_dataset = lists, contain adequate image combinations for input and target datasets, respectively,
+#                                                              based on `non-water` threshold
+#     '''
+#     input_dataset, target_dataset = create_datasets(train_val_test, reach, year_target, nodata_value, dir_folders, collection, scaled_classes)
+
+#     # filtered_input_dataset, filtered_target_dataset = [], []
+#     # # filter pairs based on the specified threshold
+#     # for input_images, target_image in zip(input_dataset, target_dataset):
+#     #     input_combs = []
+#     #     # check input images
+#     #     for img in input_images:
+#     #         nonwater_count = count_pixels(img, nonwater_value) < nonwater_threshold 
+#     #         input_combs.append(nonwater_count)
+
+#     #     # check if input images are all suitable  
+#     #     if all(input_combs):
+#     #         # check target images
+#     #         target_nonwater_thr = count_pixels(target_image[0], nonwater_value) < nonwater_threshold
+#     #         if target_nonwater_thr:
+#     #             # convert input images to tensor
+#     #             input_tensor = [img for img in input_images]
+#     #             # convert target image to tensor
+#     #             target_tensor = target_image[0]
+                
+#     #             filtered_input_dataset.append(input_tensor)
+#     #             filtered_target_dataset.append(target_tensor)
+
+#     filtered_input_dataset = input_dataset
+#     filtered_target_dataset = [t[0] for t in target_dataset]
+
+#     return filtered_input_dataset, filtered_target_dataset
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import os
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+
+
+def create_list_images(
+    train_val_test,
+    reach,
+    dir_folders=r"data\satellite\preprocessed_PIETER",
+    collection=r"JRC_GSW1_4_MonthlyHistory",
+):
+    """
+    Return the paths of the YEARLY .npy satellite images present within a folder
+    given use and reach.
+
+    Assumes folder structure like:
+        data/satellite/preprocessed_PIETER/
+            JRC_GSW1_4_MonthlyHistory_training_r1/
+                1987_training_r1.npy
+                1988_training_r1.npy
+                ...
+
+    Adjust the folder name / pattern if needed.
+    """
+    folder = os.path.join(dir_folders, f"{collection}_{train_val_test}_r{reach}")
     list_dir_images = []
-    # loop through images of that folder
-    for image in os.listdir(folder):
-        # get only .tif files
-        if image.endswith('.tif'):
-            path_image = os.path.join(folder, image)
+
+    for fname in os.listdir(folder):
+        if fname.endswith(".npy"):
+            path_image = os.path.join(folder, fname)
             list_dir_images.append(path_image)
+
+    # sort to ensure chronological order if filenames start with year
+    list_dir_images.sort()
     return list_dir_images
 
-def create_datasets(train_val_test, reach, year_target=5, nodata_value=-1, dir_folders=r'data\satellite\dataset', 
-                    collection=r'JRC_GSW1_4_MonthlyHistory', scaled_classes=True):
-    '''
-    Create the input and target dataset for each specific use and reach. Return two lists of lists. 
-    The input list has n-elements, with n depending on the year of prediction: 
-    if fifth year is predicted the list has four elements. 
-    The target list has one element (the year of prediction).
 
-    n-to-1 predictions
+def create_datasets(
+    train_val_test,
+    reach,
+    year_target=5,
+    nodata_value=-1,  # kept for compatibility but unused here
+    dir_folders=r"data\satellite\preprocessed_PIETER",
+    collection=r"JRC_GSW1_4_MonthlyHistory",
+    scaled_classes=True,
+):
+    """
+    PURE YEARLY .NPY VERSION
 
-    Generate binary images by replaciong `no-data` pixels with the average images stored in the .csv files available in 'data\satellite\averages'. 
-    The average images are computed with the function 'get_good_avg' stored in the module 'satellite_analysis_pre'.  
-    
-    Inputs: 
-           train_val_test = str, specifies what the images are used for.
-                            available options: 'training', 'validation' and 'testing'
-           reach = int, representing reach number. Number increases going upstream.
-                   For training, the available range is 1-28 (included)
-                   For validation and testing there is only 1 reach
-           year_target = int, sets the year predicted after a sequence of input years.
-                         default: 5, input dataset is made of 4 images and 5th year is the predicted one
-           nodata_value = int, represents pixel value of no-data class.
-                          default: -1, based on the updated pixel classes. 
-                          If `scaled_classes` = False, this should be set to 0
-           dir_folders = str, directory where folders are stored
-                         default: r'data\satellite\dataset'
-           collection = str, specifies the satellite images collection.
-                        default: r'JRC_GSW1_4_MonthlyHistory', the function is implemented to work only with this dataset
-           scaled_classes = bool, sets whether pixel classes are scaled to the range [-1, 1] or kept within the original one [0, 2]
-                            default: True, pixel classes are scaled (recommended). 
-    
-    Outputs:
-            input_dataset, target_dataset = lists of lists, contain the input and target images respectively  
-    '''
-    # create list of images (paths)
-    list_dir_images = create_list_images(train_val_test, reach, dir_folders, collection)
-    # load list of images (arrays)
-    images_array = [load_image_array(list_dir_images[i], scaled_classes=scaled_classes) for i in range(len(list_dir_images))]
-    # load season averages
-    avg_imgs = [load_avg(train_val_test, reach, year, dir_averages=r'data\satellite\averages') for year in range(1988, 1988 + len(images_array))]
-    # replace missing data - images are now binary!
-    good_images_array = [np.where(image==nodata_value, avg_imgs[i], image) for i, image in enumerate(images_array)]
-        
+    Build sequences of yearly .npy images.
+
+    - list_dir_images: [year1.npy, year2.npy, ..., yearN.npy]
+    - For each window of length year_target, we take:
+        inputs: first (year_target - 1) years as a list of paths
+        target: last year as a single path (wrapped in a list)
+    """
+    list_dir_images = create_list_images(
+        train_val_test, reach, dir_folders=dir_folders, collection=collection
+    )
+
+    n_years = len(list_dir_images)
+    if n_years < year_target:
+        raise ValueError(
+            f"Not enough yearly .npy files: have {n_years}, need at least {year_target}"
+        )
+
     input_dataset = []
     target_dataset = []
-    
-    # loop through images to append these in the originally empty lists
-    for i in range(len(good_images_array)-year_target+1): # add +1 at the end to include last available year
-        input_dataset.append(good_images_array[i:i+year_target-1])
-        target_dataset.append([good_images_array[i+year_target-1]])
+
+    for start_year_idx in range(n_years - year_target + 1):
+        # inputs: first (year_target - 1) years
+        input_paths = [
+            list_dir_images[start_year_idx + rel_y]
+            for rel_y in range(year_target - 1)
+        ]
+
+        # target: the year_target-th year
+        target_path = list_dir_images[start_year_idx + year_target - 1]
+
+        input_dataset.append(input_paths)
+        target_dataset.append([target_path])
 
     return input_dataset, target_dataset
 
-def combine_datasets(train_val_test, reach, year_target=5, nonwater_threshold=480000, nodata_value=-1, nonwater_value=0,   
-                     dir_folders=r'data\satellite\dataset', collection=r'JRC_GSW1_4_MonthlyHistory', scaled_classes=True):
-    '''
-    Filter the images based on `non-water` amount of pixels threshold. If the requirement is not met, the full inputs-target combination is discarded.
-    Select the best images for training the model. After the averaging step, `no-data` pixels are replaced with the season and neighboours average 
-    (see 'get_good_avg' function in the module 'satellite_analysis_pre').
-    If the full image is composed of `no-data`, the resulting average wil be a fully `non-water` image. These images are discarded.
 
-    Inputs:
-           train_val_test = str, specifies what the images are used for.
-                            available options: 'training', 'validation' and 'testing'
-           reach = int, representing reach number. Number increases going upstream.
-                   For training, the available range is 1-28 (included)
-                   For validation and testing there is only 1 reach
-           year_target = int, sets the year predicted after a sequence of input years.
-                         default: 5, input dataset is made of 4 images and 5th year is the predicted one
-           nonwater_threshold = int, min amount of `non-water` pixels allowed in the inputs-target combinations
-                                default: 480000, necessary to filter out only the fully `non-water` images
-           nodata_value = int, represents pixel value of no data class.
-                          default: -1, based on the updated pixel classes. 
-                          If `scaled_classes` = False, this should be set to 0
-           nonwater_value = int, represents pixel value of non-water class.
-                         default: 0, based on the updated pixel classes. 
-                          If `scaled_classes` = False, this should be set to 1
-           dir_folders = str, directory where folders are stored
-                         default: r'data\satellite\dataset'
-           collection = str, specifies the satellite images collection.
-                        default: r'JRC_GSW1_4_MonthlyHistory', the function is implemented to work only with this dataset
-           scaled_classes = bool, sets whether pixel classes are scaled to the range [-1, 1] or kept within the original one [0, 2]
-                            default: True, pixel classes are scaled (recommended).
-                        
-    Output:
-           filtered_input_dataset, filtered_target_dataset = lists, contain adequate image combinations for input and target datasets, respectively,
-                                                             based on `non-water` threshold
-    '''
-    input_dataset, target_dataset = create_datasets(train_val_test, reach, year_target, nodata_value, dir_folders, collection, scaled_classes)
+def combine_datasets(
+    train_val_test,
+    reach,
+    year_target=5,
+    nonwater_threshold=480000,  # kept for API compatibility; not used now
+    nodata_value=-1,
+    nonwater_value=0,
+    dir_folders=r"data\satellite\preprocessed_PIETER",
+    collection=r"JRC_GSW1_4_MonthlyHistory",
+    scaled_classes=True,
+):
+    """
+    PURE YEARLY .NPY VERSION
 
-    filtered_input_dataset, filtered_target_dataset = [], []
-    # filter pairs based on the specified threshold
-    for input_images, target_image in zip(input_dataset, target_dataset):
-        input_combs = []
-        # check input images
-        for img in input_images:
-            nonwater_count = count_pixels(img, nonwater_value) < nonwater_threshold 
-            input_combs.append(nonwater_count)
+    Currently just calls create_datasets and unwraps one level on targets.
+    """
+    input_dataset, target_dataset = create_datasets(
+        train_val_test,
+        reach,
+        year_target,
+        nodata_value,
+        dir_folders,
+        collection,
+        scaled_classes,
+    )
 
-        # check if input images are all suitable  
-        if all(input_combs):
-            # check target images
-            target_nonwater_thr = count_pixels(target_image[0], nonwater_value) < nonwater_threshold
-            if target_nonwater_thr:
-                # convert input images to tensor
-                input_tensor = [img for img in input_images]
-                # convert target image to tensor
-                target_tensor = target_image[0]
-                
-                filtered_input_dataset.append(input_tensor)
-                filtered_target_dataset.append(target_tensor)
+    # target_dataset is a list of [target_path]; unwrap to just target_path
+    filtered_input_dataset = input_dataset
+    filtered_target_dataset = [t[0] for t in target_dataset]
+
     return filtered_input_dataset, filtered_target_dataset
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def create_full_dataset(train_val_test, year_target=5, nonwater_threshold=480000, nodata_value=-1, nonwater_value=0, dir_folders=r'data\satellite\dataset', 
                         collection=r'JRC_GSW1_4_MonthlyHistory', scaled_classes=True, device='cuda:0', dtype=torch.int64):
@@ -274,6 +530,8 @@ def create_full_dataset(train_val_test, year_target=5, nonwater_threshold=480000
     
     dataset = TensorDataset(input_tensor, target_tensor)
     return dataset
+
+
 
 # ----------------------------------------- # 
 # TEMPORAL SPLIT #

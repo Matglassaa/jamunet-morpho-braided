@@ -476,6 +476,176 @@ def show_evolution_nolegend_nn(sample_img, dataset, model, nonwater=0, water=1, 
         plt.show()
     return None
 
+
+
+
+
+
+
+
+
+import math
+import numpy as np
+import torch
+from matplotlib import pyplot as plt
+from matplotlib.colors import ListedColormap
+
+def show_all_images(
+    sample_img, dataset, model,
+    train_val_test='testing',
+    device='cuda:0',
+    pixel_size=60,
+    water_threshold=0.5,
+    nonwater=0, water=1,
+    save_img=False
+):
+
+    # ---- LOAD ONE SAMPLE FROM DATASET ----
+    x, y_bin, *_ = dataset[sample_img]      # y_bin is 0/1
+    input_img = x.unsqueeze(0).to(device)   # [1,C,H,W]
+    target_img = y_bin.cpu()                # [H,W], 0/1
+
+    print(f"\n=== DEBUG sample {sample_img} ===")
+    uniq_t, cnt_t = torch.unique(target_img, return_counts=True)
+    print("target_img unique + counts:", list(zip(uniq_t.tolist(), cnt_t.tolist())))
+
+    # ---- RUN MODEL ----
+    with torch.no_grad():
+        raw_pred = model(input_img).detach().cpu()   # [1,2,H,W] expected
+
+    if raw_pred.ndim != 4 or raw_pred.shape[1] != 2:
+        raise ValueError(f"Expected prediction shape [1,2,H,W], got {raw_pred.shape}")
+
+    H, W = target_img.shape
+    pred_scores = torch.softmax(raw_pred[0], dim=0)[1]   # water prob [H,W]
+    pred_mask   = (pred_scores >= water_threshold).float()
+
+    uniq_p, cnt_p = torch.unique(pred_mask, return_counts=True)
+    print("pred_mask unique + counts:", list(zip(uniq_p.tolist(), cnt_p.tolist())))
+
+    # ---- MISCLASS MAP (4 CLASSES) ----
+    # 0 = correct non-water
+    # 1 = correct water
+    # 2 = incorrect water (FP)
+    # 3 = incorrect non-water (FN)
+    diff_final = torch.zeros_like(target_img, dtype=torch.int64)
+    diff_final[(target_img == 0) & (pred_mask == 0)] = 0
+    diff_final[(target_img == 1) & (pred_mask == 1)] = 1
+    diff_final[(target_img == 0) & (pred_mask == 1)] = 2
+    diff_final[(target_img == 1) & (pred_mask == 0)] = 3
+
+    uniq_d, cnt_d = torch.unique(diff_final, return_counts=True)
+    print("diff_final unique + counts:", list(zip(uniq_d.tolist(), cnt_d.tolist())))
+
+    # ---- COLORMAPS ----
+    cmap_input  = ListedColormap(['black', 'palegoldenrod', 'navy'])  # 0/1/2
+    cmap_target = ListedColormap(['palegoldenrod', 'navy'])           # 0/1
+    cmap_pred   = ListedColormap(['palegoldenrod', 'navy'])           # 0/1
+    cmap_diff   = ListedColormap([
+        'white',   # 0 CNW
+        'blue',    # 1 CW
+        'yellow',  # 2 FP
+        'red'      # 3 FN
+    ])
+
+    # ---- GRID LAYOUT ----
+    C = input_img.shape[1]
+    n_cols = 6
+    n_rows_inputs = math.ceil(C / n_cols)
+    total_rows = n_rows_inputs + 1
+
+    fig, ax = plt.subplots(total_rows, n_cols, figsize=(3*n_cols, 3*total_rows))
+    if total_rows == 1:
+        ax = np.expand_dims(ax, axis=0)
+
+    # ---- PLOT INPUTS (3-class) ----
+    for i in range(C):
+        r = i // n_cols
+        c = i % n_cols
+        ax[r, c].imshow(input_img[0, i].cpu(), cmap=cmap_input, vmin=0, vmax=2)
+        ax[r, c].set_title(f'Input {i}', fontsize=10)
+        ax[r, c].axis('off')
+
+    for idx in range(C, n_rows_inputs * n_cols):
+        r = idx // n_cols
+        c = idx % n_cols
+        ax[r, c].axis('off')
+
+    last_row = total_rows - 1
+
+    # ---- TARGET (binary 0/1) ----
+    ax[last_row, 0].imshow(target_img, cmap=cmap_target, vmin=0, vmax=1, interpolation='nearest')
+    ax[last_row, 0].set_title("TARGET", fontsize=10)
+    ax[last_row, 0].axis('off')
+
+    # ---- PREDICTION (binary 0/1) ----
+    ax[last_row, 1].imshow(pred_mask, cmap=cmap_pred, vmin=0, vmax=1, interpolation='nearest')
+    ax[last_row, 1].set_title("PREDICTED", fontsize=10)
+    ax[last_row, 1].axis('off')
+
+    # ---- MISCLASS (4 classes) ----
+    ax[last_row, 2].imshow(diff_final, cmap=cmap_diff, vmin=0, vmax=3, interpolation='nearest')
+    ax[last_row, 2].set_title("MISCLASS", fontsize=10)
+    ax[last_row, 2].axis('off')
+
+    # ---- BAR PLOT (same logic as before, but using 0/1 target) ----
+    real_erosion_deposition = get_erosion_deposition(
+        input_img[0, -1].cpu(), target_img, nonwater, water, pixel_size
+    )
+    pred_erosion_deposition = get_erosion_deposition(
+        input_img[0, -1].cpu(), pred_mask, nonwater, water, pixel_size
+    )
+
+    categories = ['Erosion', 'Deposition']
+    bar_positions = np.arange(len(categories))
+
+    ax[last_row, 3].bar(bar_positions - 0.15, real_erosion_deposition, 0.3,
+                        color='white', edgecolor='black', hatch='///', label='Real')
+    ax[last_row, 3].bar(bar_positions + 0.15, pred_erosion_deposition, 0.3,
+                        color='white', edgecolor='black', hatch='xxx', label='Pred')
+    ax[last_row, 3].set_xticks(bar_positions)
+    ax[last_row, 3].set_xticklabels(categories)
+    ax[last_row, 3].set_title("Area Comparison", fontsize=12)
+    ax[last_row, 3].legend(fontsize=8)
+
+    for j in range(4, n_cols):
+        ax[last_row, j].axis('off')
+
+    if train_val_test == 'validation':
+        fig.suptitle("VALIDATION DATA", fontsize=20, color='crimson', weight='bold')
+
+    fig.tight_layout()
+
+    if save_img:
+        plt.savefig(f"all_images_{sample_img}.png", dpi=600, bbox_inches='tight')
+        plt.close(fig)
+    else:
+        plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def erosion_sites(model, dataset, sample, nonwater=0, water=1, water_threshold=0.5, train_val_test='testing', 
                   model_type='min loss', spatial_temporal='spatial', device='cuda:0', save_img=False):
     '''

@@ -6,6 +6,7 @@ import torch.nn as nn
 import numpy as np
 
 from postprocessing.metrics import compute_metrics
+import torch.nn.functional as F
 
 # add the following code at the beginning of the notebook or .py file where the model is trained or tested. 
 # if only one GPU is present you might need to remove the index "0" 
@@ -81,50 +82,62 @@ def training_unet(model, loader, optimizer, nonwater=0, water=1, pixel_size=60, 
     Output: 
            losses = array of scalars, training losses 
     '''
+
     model.to(device)
-    model.train() # specifies the model is in training mode
+    model.train()
 
     losses = []
-    # split in batches
+
     for batch in loader:
-        input = batch[0].to(device)
-        target = batch[1].to(device)
+        x = batch[0].to(device)
+        y_bin = batch[1].to(device)  # already {0,1}
 
-        # get predictions
-        predictions = get_predictions(model, input, device=device)
-        
-        # compute binary classification loss
-        binary_loss = choose_loss(predictions, target, loss_f)
-        
-        # physics-induced loss terms
-        if physics:
-            # need binary predictions
-            binary_predictions = (predictions >= water_threshold).float()
+        logits = model(x)  # [B,2,H,W]
 
-            # get real and predicted total areas of erosion and deposition
-            real_erosion_deposition = get_erosion_deposition(input[0][-1], target, nonwater, water, pixel_size)
-            predicted_erosion_deposition = get_erosion_deposition(input[0][-1], binary_predictions, nonwater, water, pixel_size)
+        # correct 2-class CE loss
+        loss = F.cross_entropy(logits, y_bin)
+
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
+
+        losses.append(loss.item())
+
+    #     # # get predictions
+    #     # predictions = get_predictions(model, input, device=device)
+        
+    #     # # compute binary classification loss
+    #     # binary_loss = choose_loss(predictions, target, loss_f)
+        
+    #     # physics-induced loss terms
+    #     if physics:
+    #         # need binary predictions
+    #         binary_predictions = (predictions >= water_threshold).float()
+
+    #         # get real and predicted total areas of erosion and deposition
+    #         real_erosion_deposition = get_erosion_deposition(input[0][-1], target, nonwater, water, pixel_size)
+    #         predicted_erosion_deposition = get_erosion_deposition(input[0][-1], binary_predictions, nonwater, water, pixel_size)
             
-            # compute regression losses
-            erosion_loss = choose_er_dep_loss(predicted_erosion_deposition[0], real_erosion_deposition[0], loss_er_dep)
-            deposition_loss = choose_er_dep_loss(predicted_erosion_deposition[1], real_erosion_deposition[1], loss_er_dep)
+    #         # compute regression losses
+    #         erosion_loss = choose_er_dep_loss(predicted_erosion_deposition[0], real_erosion_deposition[0], loss_er_dep)
+    #         deposition_loss = choose_er_dep_loss(predicted_erosion_deposition[1], real_erosion_deposition[1], loss_er_dep)
             
-            # sum loss terms with individual weights
-            total_loss = binary_loss + alpha_er * erosion_loss + alpha_dep * deposition_loss 
-            losses.append(total_loss.cpu().detach())
+    #         # sum loss terms with individual weights
+    #         total_loss = binary_loss + alpha_er * erosion_loss + alpha_dep * deposition_loss 
+    #         losses.append(total_loss.cpu().detach())
         
-        else:
-            total_loss = binary_loss
-            losses.append(total_loss.cpu().detach())
+    #     else:
+    #         total_loss = binary_loss
+    #         losses.append(total_loss.cpu().detach())
 
-        # backpropagate and update weights
-        optimizer.zero_grad(set_to_none=True)   # reset the computed gradients
-        total_loss.backward()                   # compute the gradients using backpropagation
-        optimizer.step()                        # update the weights with the optimizer
+    #     # backpropagate and update weights
+    #     optimizer.zero_grad(set_to_none=True)   # reset the computed gradients
+    #     total_loss.backward()                   # compute the gradients using backpropagation
+    #     optimizer.step()                        # update the weights with the optimizer
         
-    losses = np.array(losses).mean() 
+    # losses = np.array(losses).mean() 
 
-    return losses
+    return np.mean(losses)
 
 def validation_unet(model, loader, nonwater=0, water=1, device='cuda:0', loss_f='BCE', water_threshold=0.5):
     '''
@@ -155,6 +168,7 @@ def validation_unet(model, loader, nonwater=0, water=1, device='cuda:0', loss_f=
            losses, accuracies, precisions, recalls, f1_scores, csi_scores 
                    = array of scalars, validation losses and metrics 
     '''
+
     model.to(device)
     model.eval() # specifies the model is in evaluation mode = validation/testing
 
@@ -164,37 +178,39 @@ def validation_unet(model, loader, nonwater=0, water=1, device='cuda:0', loss_f=
     recalls = []
     f1_scores = []
     csi_scores = []
+
     
-    with torch.no_grad(): # specifies gradient is not computed
-        # split in batches
+    
+    with torch.no_grad():
         for batch in loader:
-            input = batch[0].to(device)
-            target = batch[1].to(device)
-    
-            # get predictions
-            predictions = get_predictions(model, input, device=device)
-            # generate binary predictions
-            binary_predictions = (predictions >= water_threshold).float()
-            # compute loss 
-            loss = choose_loss(predictions, target, loss_f)
-            # compute metrics
-            accuracy, precision, recall, f1_score, csi_score = compute_metrics(binary_predictions, target, nonwater, water)
-            
-            losses.append(loss.cpu().detach())
+            x = batch[0].to(device)
+            y_bin = batch[1].to(device)
+
+            logits = model(x)
+
+            loss = F.cross_entropy(logits, y_bin)
+            losses.append(loss.item())
+
+            pred = logits.argmax(dim=1)  # {0,1}
+
+            accuracy, precision, recall, f1_score, csi_score = compute_metrics(
+                pred.cpu(), y_bin.cpu()
+            )
+
             accuracies.append(accuracy)
             precisions.append(precision)
             recalls.append(recall)
             f1_scores.append(f1_score)
             csi_scores.append(csi_score)
 
-    losses = np.array(losses).mean()             
-    accuracies = np.array(accuracies).mean()     
-    precisions = np.array(precisions).mean()    
-    recalls = np.array(recalls).mean()           
-    f1_scores = np.array(f1_scores).mean()      
-    csi_scores = np.array(csi_scores).mean()    
-
-    return losses, accuracies, precisions, recalls, f1_scores, csi_scores
+    return (
+        np.mean(losses),
+        np.mean(accuracies),
+        np.mean(precisions),
+        np.mean(recalls),
+        np.mean(f1_scores),
+        np.mean(csi_scores)
+    )
 
 def choose_loss(preds, targets, loss_f='BCE'):
     '''
