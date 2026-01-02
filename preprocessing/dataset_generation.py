@@ -6,12 +6,22 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
 import numpy as np
+import pandas as pd 
 
 from osgeo import gdal 
 from torch.utils.data import TensorDataset 
 
 from preprocessing.satellite_analysis_pre import count_pixels
 from preprocessing.satellite_analysis_pre import load_avg
+
+
+RAINFALL_CSV = "preprocessing/monsoon_rainfall_forcing.csv"
+
+rainfall_df = pd.read_csv(RAINFALL_CSV, index_col=0)
+rainfall_lookup = rainfall_df["Rainfall_forcing"].to_dict()
+
+assert len(rainfall_lookup) > 0, "Rainfall lookup is empty!"
+
 
 def load_image_array(path, scaled_classes=True):
     '''
@@ -146,9 +156,25 @@ def create_datasets(train_val_test, reach, year_target=5, nodata_value=-1, dir_f
     images_array = [load_image_array(list_dir_images[i], scaled_classes=scaled_classes) for i in range(len(list_dir_images))]
     # load season averages
     avg_imgs = [load_avg(train_val_test, reach, year, dir_averages=r'data\satellite\averages') for year in range(1988, 1988 + len(images_array))]
-    # replace missing data - images are now binary!
-    good_images_array = [np.where(image==nodata_value, avg_imgs[i], image) for i, image in enumerate(images_array)]
-        
+    # replace missing data - images are now binary! THIS CODE IS CHANGED:
+    #good_images_array = [np.where(image==nodata_value, avg_imgs[i], image) for i, image in enumerate(images_array)]
+    good_images_array = []
+
+    for i, image in enumerate(images_array):
+        year = years[i] #morphological year from filename
+        rain_year = year - 1 #rainfall applies from previous year
+        if rain_year not in rainfall_lookup:
+            print(f"Warning: No rainfall data for morphological year {year} (rainfall year {rain_year}). Using image without adjustment.")
+            continue
+        rain_value = rainfall_lookup[rain_year]
+        rain_map = np.full_like(image, rain_value, dtype=np.float32)# broadcast scalar rainfall to spatial map
+        morph_clean = np.where(image == nodata_value, avg_imgs[i], image) # replace nodata in morphology with average
+        stacked = np.stack(
+            [morph_clean.astype(np.float32), rain_map],
+            axis=0
+        )
+        good_images_array.append(stacked)
+
     input_dataset = []
     target_dataset = []
     
@@ -265,11 +291,11 @@ def create_full_dataset(train_val_test, year_target=5, nonwater_threshold=480000
        
     # create tensors
     if dtype is None:
-        input_tensor = torch.tensor(stacked_dict['input'])        # removed device=device
+        input_tensor = torch.tensor(stacked_dict['input'],dtype=torch.float32)        # removed device=device
         target_tensor = torch.tensor(stacked_dict['target'])      # removed device=device
     else:
-        input_tensor = torch.tensor(stacked_dict['input'], dtype=dtype)       # removed device=device
-        target_tensor = torch.tensor(stacked_dict['target'], dtype=dtype)     # removed device=device
+        input_tensor = torch.tensor(stacked_dict['input'], dtype=torch.float32)       # removed device=device
+        target_tensor = torch.tensor(stacked_dict['target'])     # removed device=device
 
     
     dataset = TensorDataset(input_tensor, target_tensor)
