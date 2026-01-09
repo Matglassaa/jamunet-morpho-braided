@@ -15,12 +15,64 @@ from preprocessing.satellite_analysis_pre import count_pixels
 from preprocessing.satellite_analysis_pre import load_avg
 
 
-RAINFALL_CSV = "preprocessing/monsoon_rainfall_forcing.csv"
+# Path to the CSV file with normalized CI values
+CI_CSV_PATH = r"C:\Users\SID-DRW\Downloads\Indus_monthly_CI_outputs\Indus_merged_output.csv"
 
-rainfall_df = pd.read_csv(RAINFALL_CSV, index_col=0)
-rainfall_lookup = rainfall_df["Rainfall_forcing"].to_dict()
+# Load the CSV into a DataFrame
+ci_df = pd.read_csv(CI_CSV_PATH)
 
-assert len(rainfall_lookup) > 0, "Rainfall lookup is empty!"
+# Create a lookup dictionary for normalized CI values based on (r, month)
+ci_lookup = ci_df.set_index(['r', 'month'])['CI_normalized'].to_dict()
+
+def integrate_monthly_CI_to_images(image, r_label, month, nodata_value=-1):
+    '''
+    Integrates the normalized CI value per month into the satellite image data.
+    '''
+    # Lookup CI value for the specific r (image) and month
+    if (r_label, month) not in ci_lookup:
+        print(f"Warning: No CI data for image {r_label} month {month}. Using default value of 0.")
+        ci_value = 0  # Default to 0 if no data is available for the given image and month
+    else:
+        ci_value = ci_lookup[(r_label, month)]
+    
+    # Create a CI map with the same shape as the image
+    ci_map = np.full_like(image, ci_value, dtype=np.float32)
+    
+    # Combine the CI map with the morphology data (replacing nodata with average)
+    morph_clean = np.where(image == nodata_value, 0, image)  # Replace nodata values
+    stacked = np.stack([morph_clean.astype(np.float32), ci_map], axis=0)  # Stack morphology and CI map
+    
+    return stacked
+
+def create_datasets_with_CI(train_val_test, reach, year_target=5, nodata_value=-1, dir_folders=r'data\satellite\dataset', 
+                            collection=r'JRC_GSW1_4_MonthlyHistory', scaled_classes=True):
+    '''
+    Create datasets with integrated CI values per month based on the provided merged and normalized CI CSV.
+    '''
+    # Create list of image paths
+    list_dir_images = create_list_images(train_val_test, reach, dir_folders, collection)
+    
+    # Load the images as arrays
+    images_array = [load_image_array(list_dir_images[i], scaled_classes=scaled_classes) for i in range(len(list_dir_images))]
+    
+    # Generate the input dataset by adding the CI value for each image
+    good_images_array = []
+    for i, image in enumerate(images_array):
+        year = 1988 + i  # Assuming year from the filename structure
+        month = (i % 12) + 1  # Assuming sequential months for simplicity
+        r_label = f"r{reach}"  # Image reach label (r1, r2, etc.)
+        image_with_ci = integrate_monthly_CI_to_images(image, r_label, f"{year}-{month:02d}", nodata_value)
+        good_images_array.append(image_with_ci)
+    
+    input_dataset = []
+    target_dataset = []
+    
+    # Loop to create the dataset
+    for i in range(len(good_images_array) - year_target + 1):
+        input_dataset.append(good_images_array[i:i + year_target - 1])
+        target_dataset.append([good_images_array[i + year_target - 1]])
+
+    return input_dataset, target_dataset
 
 
 def load_image_array(path, scaled_classes=True):
@@ -160,20 +212,15 @@ def create_datasets(train_val_test, reach, year_target=5, nodata_value=-1, dir_f
     #good_images_array = [np.where(image==nodata_value, avg_imgs[i], image) for i, image in enumerate(images_array)]
     good_images_array = []
 
-    for i, image in enumerate(images_array):
-        year = years[i] #morphological year from filename
-        rain_year = year - 1 #rainfall applies from previous year
-        if rain_year not in rainfall_lookup:
-            print(f"Warning: No rainfall data for morphological year {year} (rainfall year {rain_year}). Using image without adjustment.")
-            continue
-        rain_value = rainfall_lookup[rain_year]
-        rain_map = np.full_like(image, rain_value, dtype=np.float32)# broadcast scalar rainfall to spatial map
-        morph_clean = np.where(image == nodata_value, avg_imgs[i], image) # replace nodata in morphology with average
-        stacked = np.stack(
-            [morph_clean.astype(np.float32), rain_map],
-            axis=0
-        )
-        good_images_array.append(stacked)
+  # Inside create_datasets_with_CI function
+
+for i, image in enumerate(images_array):
+    year = 1988 + i  # Ensure the year is calculated correctly
+    month = (i % 12) + 1  # Assuming sequential months for simplicity
+    r_label = f"r{reach}"  # Image reach label (r1, r2, etc.)
+    image_with_ci = integrate_monthly_CI_to_images(image, r_label, f"{year}-{month:02d}", nodata_value)
+    good_images_array.append(image_with_ci)
+
 
     input_dataset = []
     target_dataset = []
