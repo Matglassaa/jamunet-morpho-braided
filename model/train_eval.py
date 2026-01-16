@@ -42,160 +42,84 @@ def get_predictions(model, input_dataset, device='cuda:0'):
     predictions = model(input_dataset.to(device))  
     return predictions.squeeze(1) 
 
-def training_unet(model, loader, optimizer, nonwater=0, water=1, pixel_size=60, water_threshold=0.5, 
-                  device='cuda:0', loss_f='BCE', physics=False, alpha_er = 1e-2, alpha_dep = 1e-3, loss_er_dep='Huber'):
-    '''
-    Training loop for the deep-learning model. Allows to choose the loss function for binary classification.
-    Enables the inclusion of physics-induced loss terms (regression losses).
+import numpy as np
+import torch
+import torch.nn.functional as F
 
-    Inputs: 
-           model = class, deep-learning model to be trained
-           loader = torch.utils.data.DataLoader element, data loader that combines a dataset 
-                    and a sampler to feed data to the model in batches
-           nonwater = int, 'non-water' class pixel value
-                      default: 0 (scaled classification). 
-                      If the original classification is used, this key should be set to 1
-           water = int, 'water' class pixel value
-                   default: 1 (scaled classification). 
-                   If the original classification is used, this should be set to 2 
-           pixel_size = int, image pixel resolution (m). Used for computing the erosion and deposition areas
-                        default: 60, exported image resolution from Google Earth Engine
-           water_threshold = float, generate binary predictions to compute the total areas of erosion and deposition
-           device = str, specifies the device where memory is allocated for performing the computations
-                    default: 'cuda:0', other availble option: 'cpu'
-                    Always remember to correctly set this key before running the simulations to avoid issues
-                    (see the default code at the beginning of this module or in one of the training notebooks)
-           loss_f = str, binary classification loss function
-                    default: 'BCE'. Other available options: 'BCE_Logits', 'Focal'
-                    If other loss functions are set it raises an Exception
-           physics = bool, sets whether physics-induced loss terms (total areas of erosion
-                     and deposition) are included in the loss.
-                     default: False, not included
-           alpha_er = float, weight of the erosion loss term within the total loss.
-                      default: 1e-2. Suggested range [1e-5, 1e-2] 
-           alpha_dep = float, weight of the deposition loss term within the total loss.
-                       default: 1e-3. Suggested range [1e-5, 1e-2] 
-           loss_er_dep = str, regression loss function for erosion and deposition terms
-                         default: 'Huber'. Other available options: 'RMSE', 'MAE'
-                         If other loss functions are set it raises an Exception.
-    
-    Output: 
-           losses = array of scalars, training losses 
-    '''
 
+def training_unet(
+    model, loader, optimizer,
+    nonwater=0, water=1, pixel_size=60, water_threshold=0.5,
+    device="cuda:0", loss_f="CE", physics=False,
+    alpha_er=1e-2, alpha_dep=1e-3, loss_er_dep="Huber",
+    accum_steps=1, use_amp=True,
+):
     model.to(device)
     model.train()
 
+    scaler = torch.cuda.amp.GradScaler(enabled=(use_amp and str(device).startswith("cuda")))
     losses = []
+    optimizer.zero_grad(set_to_none=True)
 
-    for batch in loader:
-        x = batch[0].to(device)
-        y_bin = batch[1].to(device)  # already {0,1}
+    IGNORE = 255
 
-        logits = model(x)  # [B,2,H,W]
+    for i, batch in enumerate(loader):
+        x = batch[0].to(device, non_blocking=True)         # (B,1,D,H,W)
+        y = batch[1].to(device, non_blocking=True).long()  # (B,H,W) in {0,1,255}
 
-        # correct 2-class CE loss
-        loss = F.cross_entropy(logits, y_bin)
+        with torch.cuda.amp.autocast(enabled=scaler.is_enabled()):
+            logits = model(x)  # (B,2,H,W)
 
+            valid = (y != IGNORE)
+            if valid.sum() == 0:
+                continue
+
+            lv = logits.permute(0, 2, 3, 1)[valid]  # (N,2)
+            yv = y[valid]                            # (N,)
+            loss = F.cross_entropy(lv, yv) / accum_steps
+
+        scaler.scale(loss).backward()
+
+        if (i + 1) % accum_steps == 0:
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)
+
+        losses.append(loss.item() * accum_steps)
+
+    if len(loader) % accum_steps != 0:
+        scaler.step(optimizer)
+        scaler.update()
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
 
-        losses.append(loss.item())
+    return float(np.mean(losses))
 
-    #     # # get predictions
-    #     # predictions = get_predictions(model, input, device=device)
-        
-    #     # # compute binary classification loss
-    #     # binary_loss = choose_loss(predictions, target, loss_f)
-        
-    #     # physics-induced loss terms
-    #     if physics:
-    #         # need binary predictions
-    #         binary_predictions = (predictions >= water_threshold).float()
 
-    #         # get real and predicted total areas of erosion and deposition
-    #         real_erosion_deposition = get_erosion_deposition(input[0][-1], target, nonwater, water, pixel_size)
-    #         predicted_erosion_deposition = get_erosion_deposition(input[0][-1], binary_predictions, nonwater, water, pixel_size)
-            
-    #         # compute regression losses
-    #         erosion_loss = choose_er_dep_loss(predicted_erosion_deposition[0], real_erosion_deposition[0], loss_er_dep)
-    #         deposition_loss = choose_er_dep_loss(predicted_erosion_deposition[1], real_erosion_deposition[1], loss_er_dep)
-            
-    #         # sum loss terms with individual weights
-    #         total_loss = binary_loss + alpha_er * erosion_loss + alpha_dep * deposition_loss 
-    #         losses.append(total_loss.cpu().detach())
-        
-    #     else:
-    #         total_loss = binary_loss
-    #         losses.append(total_loss.cpu().detach())
-
-    #     # backpropagate and update weights
-    #     optimizer.zero_grad(set_to_none=True)   # reset the computed gradients
-    #     total_loss.backward()                   # compute the gradients using backpropagation
-    #     optimizer.step()                        # update the weights with the optimizer
-        
-    # losses = np.array(losses).mean() 
-
-    return np.mean(losses)
-
-def validation_unet(model, loader, nonwater=0, water=1, device='cuda:0', loss_f='BCE', water_threshold=0.5):
-    '''
-    Validation loop for the deep-learning model. Allows to choose the loss function for binary classification.
-    Computes binary validation metrics by setting a threshold for water classification. 
-    Physics-induced loss terms are not included.
-
-    Inputs: 
-           model = class, deep-learning model to be validated/tested
-           loader = torch.utils.data.DataLoader element, data loader that combines a dataset 
-                    and a sampler to feed data to the model in batches
-           nonwater = int, 'non-water' class pixel value
-                      default: 0 (scaled classification). 
-                      If the original classification is used, this key should be set to 1
-           water = int, 'water' class pixel value
-                   default: 1 (scaled classification). 
-                   If the original classification is used, this should be set to 2 
-           device = str, specifies the device where memory is allocated for performing the computations
-                    default: 'cuda:0', other availble option: 'cpu'
-                    Always remember to correctly set this key before running the simulations to avoid issues
-                    (see the default code at the beginning of this module or in one of the training notebooks)
-           loss_f = str, binary classification loss function
-                    default: 'BCE'. Other available options: 'BCE_Logits', 'Focal'
-                    If other loss functions are set it raises an Exception
-           water_threshold = float, generate binary predictions to compute the binary validation metrics
-    
-    Output: 
-           losses, accuracies, precisions, recalls, f1_scores, csi_scores 
-                   = array of scalars, validation losses and metrics 
-    '''
-
+def validation_unet(model, loader, device="cuda:0"):
     model.to(device)
-    model.eval() # specifies the model is in evaluation mode = validation/testing
+    model.eval()
 
-    losses = []
-    accuracies = []
-    precisions = []
-    recalls = []
-    f1_scores = []
-    csi_scores = []
+    losses, accuracies, precisions, recalls, f1_scores, csi_scores = ([] for _ in range(6))
+    IGNORE = 255
 
-    
-    
     with torch.no_grad():
         for batch in loader:
-            x = batch[0].to(device)
-            y_bin = batch[1].to(device)
+            x = batch[0].to(device)                 # (B,1,T,H,W)
+            y = batch[1].to(device).long()          # (B,H,W) {0,1,255}
+            valid_mask = batch[2].to(device) & (y != IGNORE)
 
-            logits = model(x)
+            logits = model(x)                       # (B,2,H,W)
 
-            loss = F.cross_entropy(logits, y_bin)
+            lv = logits.permute(0, 2, 3, 1)[valid_mask]  # (N,2)
+            yv = y[valid_mask]                           # (N,)
+            if yv.numel() == 0:
+                continue
+            loss = F.cross_entropy(lv, yv)
             losses.append(loss.item())
 
-            pred = logits.argmax(dim=1)  # {0,1}
-
-            accuracy, precision, recall, f1_score, csi_score = compute_metrics(
-                pred.cpu(), y_bin.cpu()
-            )
+            pred = logits.argmax(dim=1)             # (B,H,W) {0,1}
+            pv = pred[valid_mask]
+            accuracy, precision, recall, f1_score, csi_score = compute_metrics(pv.cpu(), yv.cpu())
 
             accuracies.append(accuracy)
             precisions.append(precision)
@@ -204,12 +128,12 @@ def validation_unet(model, loader, nonwater=0, water=1, device='cuda:0', loss_f=
             csi_scores.append(csi_score)
 
     return (
-        np.mean(losses),
-        np.mean(accuracies),
-        np.mean(precisions),
-        np.mean(recalls),
-        np.mean(f1_scores),
-        np.mean(csi_scores)
+        float(np.mean(losses)),
+        float(np.mean(accuracies)),
+        float(np.mean(precisions)),
+        float(np.mean(recalls)),
+        float(np.mean(f1_scores)),
+        float(np.mean(csi_scores)),
     )
 
 def choose_loss(preds, targets, loss_f='BCE'):
